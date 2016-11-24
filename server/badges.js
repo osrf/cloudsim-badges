@@ -51,7 +51,7 @@ const projects = ['cloudsim-auth',
   'cloudsim-grant',
   'cloudsim-widgets']
 
-
+projects.sort()
 
 app.get('/', function (req, res) {
   const v = require('../package.json').version
