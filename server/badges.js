@@ -7,9 +7,7 @@ const cors = require('cors')
 const morgan = require('morgan')
 const dotenv = require('dotenv')
 const http = require('http')
-
-// cloudsim-specific
-const csgrant = require('cloudsim-grant')
+const request = require('request')
 
 // the configuration values are set in the local .env file
 // this loads the .env content and puts it in the process environment.
@@ -24,43 +22,29 @@ app.use(morgan('combined'))
 
 const httpServer = http.Server(app)
 
-const adminUser = process.env.CLOUDSIM_ADMIN
-const db = 'grant-test'
 const port = process.env.PORT
 
-const resources = [
-  {
-    "name": "toasters",
-    "data": {},
-    "permissions": [
-      {
-        "username": adminUser,
-        "permissions": {
-          "readOnly": false
-        }
-      }
-    ]
-  }
+const examples = [
+  'osrf/cloudsim-auth',
+  'osrf/cloudsim-badges',
+  'osrf/cloudsim-sim',
+  'osrf/cloudsim-portal',
+  'osrf/cloudsim-keys',
+  'osrf/cloudsim-grant',
+  'osrf/cloudsim-widgets',
+  'osrf/gazebo',
+  'ignitionrobotics/ign-math'
 ]
 
-const projects = ['cloudsim-auth',
-  'cloudsim-badges',
-  'cloudsim-sim',
-  'cloudsim-portal',
-  'cloudsim-keys',
-  'cloudsim-grant',
-  'cloudsim-widgets']
-
-projects.sort()
+examples.sort()
 
 app.get('/', function (req, res) {
-  const v = require('../package.json').version
 
   let badges = ''
 
-  for (let i in projects) {
-    const project = projects[i]
-    const href = '/badges/pr/' + project + '/pulls.svg'
+  for (let i in examples) {
+    const project = examples[i]
+    const href = '/badges/bitbucket/' + project + '/pulls.svg'
     badges += '<div><br>'
     badges += '<img src="' + href + '"></img>'
     badges += '<a href="' + href +'">' + href + '</a>'
@@ -68,50 +52,61 @@ app.get('/', function (req, res) {
   }
 
   const s = `
-    <h1>Cloudsim badges server</h1>
-    <pre>
-    cloudsim-grant v${v}
-    </pre>
-    <h2>Badges</h2>
+    <h1>Badges server</h1>
+    <h2>Example Badges</h2>
     ${badges}
   `
   res.end(s)
 })
 
-console.log('Setting up routes for bibucket PRs')
-for (let i in projects) {
-  const project = projects[i]
-  const url = '/badges/pr/' + project + '/pulls.svg'
-  const repo = 'osrf/' + project
-  console.log('GET', url, ':', repo)
-  app.get(url, csgrant.bitbucketBadgeOpenPrs(repo))
-}
+// Get svg
+app.get('/badges/bitbucket/:org/:repo/pulls.svg', function(req, res) {
 
+  const url = 'https://bitbucket.org/!api/2.0/repositories/'
+    + req.org + '/' + req.repo + '/pullrequests'
 
-
-csgrant.setPermissionsRoutes(app)
-
-
-
-csgrant.init(resources,
-  db,
-  'localhost',
-  httpServer,
-  (err)=> {
-    if(err) {
-      console.log('Error loading resources: ' + err)
-      process.exit(-2)
+  request(url, function (error, response, body) {
+    if (error) {
+      console.error(error)
+      return
     }
-    else {
-      console.log('resources loaded')
-
-      // start the server
-      httpServer.listen(port, function(){
-        console.log('listening on *:' + port);
-      })
+    if (response.statusCode != 200) {
+      console.error('error getting PRs, code:', response.statusCode)
+      res.status(response.statusCode).end(error)
+      return
     }
-  }
-)
+    const bitbucketData = JSON.parse(body)
+    const pullRequests = bitbucketData.size
+
+    let color = '#4c1'
+    if (pullRequests > 0)
+      color = '#dfb317'
+
+    const s = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="20"><linearGradient id="b" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><mask id="a"><rect width="128" height="20" rx="3" fill="#fff"/></mask>
+<g mask="url(#a)"><path fill="#555" d="M0 0h81v20H0z"/><path fill="${color}" d="M81 0h47v20H81z"/><path fill="url(#b)" d="M0 0h128v20H0z"/></g><g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
+<text x="40.5" y="15" fill="#010101" fill-opacity=".3">pull requests</text>
+<text x="40.5" y="14">pull requests</text>
+<text x="103.5" y="15" fill="#010101" fill-opacity=".3">${pullRequests} open</text>
+<text x="103.5" y="14">${pullRequests} open</text>
+</g></svg>`
+    console.log('', pullRequests, 'open PRs for', req.org, '/', req.repo)
+    // serve it as an svg document
+    res.setHeader('content-type', 'image/svg+xml;charset=utf-8')
+    res.end(s)
+  })
+})
+
+// Set org parameter
+app.param('org', function(req, res, next, id) {
+  req.org = id
+  next()
+})
+
+// Set repo parameter
+app.param('repo', function(req, res, next, id) {
+  req.repo = id
+  next()
+})
 
  // start the server
 httpServer.listen(port, function(){
